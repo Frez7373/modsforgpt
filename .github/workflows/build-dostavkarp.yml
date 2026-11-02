@@ -1,0 +1,56 @@
+name: Build DostavkaRP 1.20.1
+
+on:
+  push:
+    branches:
+      - build/dostavkarp-1.20.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Forge 1.20.1 / Java 17
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source payload
+        uses: actions/checkout@v4
+
+      - name: Restore source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dostavkarp"
+          cat .dostavkarp-payload/part*.b64 | base64 --decode > "$RUNNER_TEMP/dostavkarp/source.tar.xz"
+          tar -xJf "$RUNNER_TEMP/dostavkarp/source.tar.xz" -C "$RUNNER_TEMP/dostavkarp"
+          test -f "$RUNNER_TEMP/dostavkarp/DostavkaRP/build.gradle"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle 8.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            https://services.gradle.org/distributions/gradle-8.8-bin.zip \
+            -o "$RUNNER_TEMP/gradle-8.8-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.8-bin.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.8/bin" >> "$GITHUB_PATH"
+
+      - name: Build mod
+        shell: bash
+        working-directory: ${{ runner.temp }}/dostavkarp/DostavkaRP
+        run: gradle --no-daemon --stacktrace clean build
+
+      - name: Upload mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: DostavkaRP-1.20.1
+          path: ${{ runner.temp }}/dostavkarp/DostavkaRP/build/libs/DostavkaRP-1.20.1.jar
+          if-no-files-found: error
+          retention-days: 7
