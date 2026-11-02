@@ -186,7 +186,6 @@ jobs:
                   marker.noPhysics = true;
                   marker.setInvulnerable(true);
                   marker.setSilent(true);
-                  marker.setMarker(true);
                   marker.setPos(x + 0.5, y, z + 0.5);
                   marker.addTag(MARKER_TAG);
                   marker.getPersistentData().putString(DATA_KEY, id);
