@@ -54,26 +54,11 @@ jobs:
           project = Path(os.environ["RUNNER_TEMP"]) / "dostavkarp" / "DostavkaRP"
           gradle_file = project / "build.gradle"
           source = gradle_file.read_text(encoding="utf-8")
-          needle = """        forRepository {
-                      maven {
-                          name = 'Modrinth'
-                          url = 'https://api.modrinth.com/maven'
-                      }
-                  }
-                  filter {
-          """
-          replacement = """        forRepository {
-                      maven {
-                          name = 'Modrinth'
-                          url = 'https://api.modrinth.com/maven'
-                      }
-                  }
-                  forRepositories(fg.repository)
-                  filter {
-          """
-          if needle not in source:
-              raise SystemExit("Modrinth repository block did not match expected source")
-          gradle_file.write_text(source.replace(needle, replacement, 1), encoding="utf-8")
+          marker = "        filter {"
+          if marker not in source:
+              raise SystemExit("Modrinth repository filter marker not found")
+          source = source.replace(marker, "        forRepositories(fg.repository)\n" + marker, 1)
+          gradle_file.write_text(source, encoding="utf-8")
           PY
 
       - name: Build mod
