@@ -45,6 +45,37 @@ jobs:
           unzip -q "$RUNNER_TEMP/gradle-8.8-bin.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-8.8/bin" >> "$GITHUB_PATH"
 
+      - name: Configure ForgeGradle for the Modrinth repository
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          project = Path(os.environ["RUNNER_TEMP"]) / "dostavkarp" / "DostavkaRP"
+          gradle_file = project / "build.gradle"
+          source = gradle_file.read_text(encoding="utf-8")
+          needle = """        forRepository {
+                      maven {
+                          name = 'Modrinth'
+                          url = 'https://api.modrinth.com/maven'
+                      }
+                  }
+                  filter {
+          """
+          replacement = """        forRepository {
+                      maven {
+                          name = 'Modrinth'
+                          url = 'https://api.modrinth.com/maven'
+                      }
+                  }
+                  forRepositories(fg.repository)
+                  filter {
+          """
+          if needle not in source:
+              raise SystemExit("Modrinth repository block did not match expected source")
+          gradle_file.write_text(source.replace(needle, replacement, 1), encoding="utf-8")
+          PY
+
       - name: Build mod
         shell: bash
         working-directory: ${{ runner.temp }}/dostavkarp/DostavkaRP
