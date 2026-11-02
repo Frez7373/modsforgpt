@@ -61,7 +61,7 @@ jobs:
           if marker not in gradle_source:
               raise SystemExit("Modrinth repository filter marker not found")
           gradle_source = gradle_source.replace(
-              marker, "        forRepositories(fg.repository)\\n" + marker, 1
+              marker, "        forRepositories(fg.repository)\n" + marker, 1
           )
           gradle_file.write_text(gradle_source, encoding="utf-8")
 
@@ -70,15 +70,15 @@ jobs:
           mod_source = mod_file.read_text(encoding="utf-8")
           if "public static final Logger LOGGER" not in mod_source:
               mod_source = mod_source.replace(
-                  "import net.minecraft.server.level.ServerPlayer;\\n",
-                  "import net.minecraft.server.level.ServerPlayer;\\n"
-                  "import com.mojang.logging.LogUtils;\\n"
-                  "import org.slf4j.Logger;\\n",
+                  "import net.minecraft.server.level.ServerPlayer;\n",
+                  "import net.minecraft.server.level.ServerPlayer;\n"
+                  "import com.mojang.logging.LogUtils;\n"
+                  "import org.slf4j.Logger;\n",
                   1,
               )
               mod_source = mod_source.replace(
                   '    public static final String MOD_ID = "dostavkarp";',
-                  '    public static final String MOD_ID = "dostavkarp";\\n'
+                  '    public static final String MOD_ID = "dostavkarp";\n'
                   '    public static final Logger LOGGER = LogUtils.getLogger();',
                   1,
               )
@@ -93,14 +93,14 @@ jobs:
               java_file = project / "src/main/java/com/frez7373/dostavkarp" / relative
               java_source = java_file.read_text(encoding="utf-8")
               package_line = (
-                  "package com.frez7373.dostavkarp.shift;\\n"
+                  "package com.frez7373.dostavkarp.shift;\n"
                   if relative.startswith("shift/")
-                  else "package com.frez7373.dostavkarp.command;\\n"
+                  else "package com.frez7373.dostavkarp.command;\n"
               )
               if "import com.frez7373.dostavkarp.DostavkaRPMod;" not in java_source:
                   java_source = java_source.replace(
                       package_line,
-                      package_line + "\\nimport com.frez7373.dostavkarp.DostavkaRPMod;\\n",
+                      package_line + "\nimport com.frez7373.dostavkarp.DostavkaRPMod;\n",
                       1,
                   )
               java_source = java_source.replace(
