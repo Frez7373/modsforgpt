@@ -45,20 +45,177 @@ jobs:
           unzip -q "$RUNNER_TEMP/gradle-8.8-bin.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-8.8/bin" >> "$GITHUB_PATH"
 
-      - name: Configure ForgeGradle for the Modrinth repository
+      - name: Apply Minecraft 1.20.1 compatibility fixes
         shell: bash
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
+
           project = Path(os.environ["RUNNER_TEMP"]) / "dostavkarp" / "DostavkaRP"
+
+          # ForgeGradle needs its own repository added for Modrinth dependency remapping.
           gradle_file = project / "build.gradle"
-          source = gradle_file.read_text(encoding="utf-8")
+          gradle_source = gradle_file.read_text(encoding="utf-8")
           marker = "        filter {"
-          if marker not in source:
+          if marker not in gradle_source:
               raise SystemExit("Modrinth repository filter marker not found")
-          source = source.replace(marker, "        forRepositories(fg.repository)\n" + marker, 1)
-          gradle_file.write_text(source, encoding="utf-8")
+          gradle_source = gradle_source.replace(
+              marker, "        forRepositories(fg.repository)\\n" + marker, 1
+          )
+          gradle_file.write_text(gradle_source, encoding="utf-8")
+
+          # MinecraftServer does not expose getLogger() in the 1.20.1 mapped API.
+          mod_file = project / "src/main/java/com/frez7373/dostavkarp/DostavkaRPMod.java"
+          mod_source = mod_file.read_text(encoding="utf-8")
+          if "public static final Logger LOGGER" not in mod_source:
+              mod_source = mod_source.replace(
+                  "import net.minecraft.server.level.ServerPlayer;\\n",
+                  "import net.minecraft.server.level.ServerPlayer;\\n"
+                  "import com.mojang.logging.LogUtils;\\n"
+                  "import org.slf4j.Logger;\\n",
+                  1,
+              )
+              mod_source = mod_source.replace(
+                  '    public static final String MOD_ID = "dostavkarp";',
+                  '    public static final String MOD_ID = "dostavkarp";\\n'
+                  '    public static final Logger LOGGER = LogUtils.getLogger();',
+                  1,
+              )
+          mod_source = mod_source.replace("event.getServer().getLogger()", "LOGGER")
+          mod_source = mod_source.replace("player.serverLevel().getServer().getLogger()", "LOGGER")
+          mod_file.write_text(mod_source, encoding="utf-8")
+
+          for relative in (
+              "shift/ShiftService.java",
+              "command/PanelActionHandler.java",
+          ):
+              java_file = project / "src/main/java/com/frez7373/dostavkarp" / relative
+              java_source = java_file.read_text(encoding="utf-8")
+              package_line = (
+                  "package com.frez7373.dostavkarp.shift;\\n"
+                  if relative.startswith("shift/")
+                  else "package com.frez7373.dostavkarp.command;\\n"
+              )
+              if "import com.frez7373.dostavkarp.DostavkaRPMod;" not in java_source:
+                  java_source = java_source.replace(
+                      package_line,
+                      package_line + "\\nimport com.frez7373.dostavkarp.DostavkaRPMod;\\n",
+                      1,
+                  )
+              java_source = java_source.replace(
+                  "player.serverLevel().getServer().getLogger()",
+                  "DostavkaRPMod.LOGGER",
+              )
+              java_file.write_text(java_source, encoding="utf-8")
+
+          # TextDisplay setters are not public in Forge 1.20.1. Use invisible,
+          # invulnerable marker ArmorStands with visible custom-name labels instead.
+          marker_file = project / "src/main/java/com/frez7373/dostavkarp/marker/MarkerManager.java"
+          marker_file.write_text(r'''package com.frez7373.dostavkarp.marker;
+
+          import java.util.List;
+
+          import com.frez7373.dostavkarp.data.DeliveryPoint;
+          import com.frez7373.dostavkarp.data.WorldData;
+          import com.frez7373.dostavkarp.data.WorldPosition;
+
+          import net.minecraft.core.registries.Registries;
+          import net.minecraft.network.chat.Component;
+          import net.minecraft.resources.ResourceKey;
+          import net.minecraft.resources.ResourceLocation;
+          import net.minecraft.server.MinecraftServer;
+          import net.minecraft.server.level.ServerLevel;
+          import net.minecraft.world.entity.EntityType;
+          import net.minecraft.world.entity.decoration.ArmorStand;
+          import net.minecraft.world.phys.AABB;
+          import net.minecraft.world.level.Level;
+
+          /** Non-colliding invisible ArmorStand nameplates used as delivery markers. */
+          public final class MarkerManager {
+              public static final String MARKER_TAG = "dostavkarp_marker";
+              private static final String DATA_KEY = "DostavkaRPMarkerId";
+
+              private MarkerManager() { }
+
+              public static void refresh(MinecraftServer server, WorldData data) {
+                  if (data.base() != null) {
+                      removeById(server, data.base(), "base");
+                      spawnBase(server, data.base());
+                  }
+                  for (DeliveryPoint point : data.points()) {
+                      removeById(server, point.position(), pointKey(point.id()));
+                      spawnPoint(server, point);
+                  }
+              }
+
+              public static void spawnBase(MinecraftServer server, WorldPosition position) {
+                  ServerLevel level = getLevel(server, position);
+                  if (level == null) return;
+                  removeById(server, position, "base");
+                  spawnText(level, position.x(), position.y() + 2.25, position.z(), "§e§lБАЗА ДОСТАВКИ", "base:0");
+              }
+
+              public static void spawnPoint(MinecraftServer server, DeliveryPoint point) {
+                  ServerLevel level = getLevel(server, point.position());
+                  if (level == null) return;
+                  String id = pointKey(point.id());
+                  removeById(server, point.position(), id);
+                  if (!point.active()) return;
+                  spawnText(level, point.position().x(), point.position().y() + 2.28, point.position().z(), "§b§lТОЧКА ДОСТАВКИ", id + ":0");
+                  spawnText(level, point.position().x(), point.position().y() + 1.88, point.position().z(), "§f" + point.name(), id + ":1");
+              }
+
+              public static void removePoint(MinecraftServer server, DeliveryPoint point) {
+                  removeById(server, point.position(), pointKey(point.id()));
+              }
+
+              public static void removeBase(MinecraftServer server, WorldPosition position) {
+                  if (position != null) removeById(server, position, "base");
+              }
+
+              private static String pointKey(String id) { return "point:" + id; }
+
+              private static void spawnText(ServerLevel level, double x, double y, double z, String text, String id) {
+                  ArmorStand marker = EntityType.ARMOR_STAND.create(level);
+                  if (marker == null) return;
+                  marker.setCustomName(Component.literal(text));
+                  marker.setCustomNameVisible(true);
+                  marker.setInvisible(true);
+                  marker.setNoGravity(true);
+                  marker.noPhysics = true;
+                  marker.setInvulnerable(true);
+                  marker.setSilent(true);
+                  marker.setMarker(true);
+                  marker.setPos(x + 0.5, y, z + 0.5);
+                  marker.addTag(MARKER_TAG);
+                  marker.getPersistentData().putString(DATA_KEY, id);
+                  level.addFreshEntity(marker);
+              }
+
+              private static void removeById(MinecraftServer server, WorldPosition position, String keyPrefix) {
+                  ServerLevel level = getLevel(server, position);
+                  if (level == null) return;
+                  level.getChunkAt(position.blockPos());
+                  AABB search = new AABB(position.x() - 12, position.y() - 6, position.z() - 12,
+                          position.x() + 12, position.y() + 8, position.z() + 12);
+                  List<ArmorStand> old = level.getEntitiesOfClass(ArmorStand.class, search,
+                          entity -> entity.getTags().contains(MARKER_TAG)
+                                  && entity.getPersistentData().getString(DATA_KEY).startsWith(keyPrefix));
+                  old.forEach(ArmorStand::discard);
+              }
+
+              private static ServerLevel getLevel(MinecraftServer server, WorldPosition position) {
+                  try {
+                      ResourceLocation dimensionId = new ResourceLocation(position.dimension());
+                      ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, dimensionId);
+                      return server.getLevel(key);
+                  } catch (Exception exception) {
+                      return null;
+                  }
+              }
+          }
+          ''', encoding="utf-8")
           PY
 
       - name: Build mod
