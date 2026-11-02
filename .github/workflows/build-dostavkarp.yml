@@ -217,6 +217,19 @@ jobs:
           ''', encoding="utf-8")
           PY
 
+      - name: Fix Immersive Vehicles driver-seat detection
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          project = Path(os.environ["RUNNER_TEMP"]) / "dostavkarp" / "DostavkaRP"
+          source = '''package com.frez7373.dostavkarp.vehicle;\n\nimport com.frez7373.dostavkarp.data.WorldPosition;\n\nimport net.minecraft.server.level.ServerPlayer;\nimport net.minecraftforge.fml.ModList;\n\n/** Optional adapter for Immersive Vehicles. The IV-specific classes are isolated in a lazy nested class. */\npublic final class VehicleCompat {\n    public record VehicleInfo(String modelId, WorldPosition position) { }\n\n    private VehicleCompat() { }\n\n    public static VehicleInfo getCurrentVehicle(ServerPlayer player) {\n        if (player == null || !ModList.get().isLoaded("mts")) return null;\n        try {\n            return IVAccess.read(player);\n        } catch (LinkageError | RuntimeException exception) {\n            return null;\n        }\n    }\n\n    private static final class IVAccess {\n        private static VehicleInfo read(ServerPlayer player) {\n            if (!(player.getVehicle() instanceof mcinterface1201.BuilderEntityLinkedSeat seat)) return null;\n\n            // In MTS, the Minecraft seat wrapper points to PartSeat, not directly to the vehicle.\n            // PartSeat.vehicleOn is the owning EntityVehicleF_Physics instance.\n            minecrafttransportsimulator.entities.components.AEntityB_Existing internal = seat.entity;\n            minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics vehicle = null;\n            if (internal instanceof minecrafttransportsimulator.entities.instances.PartSeat partSeat) {\n                vehicle = partSeat.vehicleOn;\n            } else if (internal instanceof minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics directVehicle) {\n                // Keep compatibility with MTS seats/wrappers that expose the vehicle directly.\n                vehicle = directVehicle;\n            }\n            if (vehicle == null || vehicle.definition == null) return null;\n\n            String packId = vehicle.definition.packID;\n            String systemName = vehicle.definition.systemName;\n            if (packId == null || packId.isBlank() || systemName == null || systemName.isBlank()) return null;\n\n            String id = packId + ":" + systemName;\n            WorldPosition position = WorldPosition.of(player.serverLevel(), vehicle.position.x, vehicle.position.y, vehicle.position.z);\n            return new VehicleInfo(id, position);\n        }\n    }\n}\n
+          '''
+          target = project / "src/main/java/com/frez7373/dostavkarp/vehicle/VehicleCompat.java"
+          target.write_text(source, encoding="utf-8")
+          PY
+
       - name: Lower delivery labels and draw CRMP-style point rings
         shell: bash
         run: |
